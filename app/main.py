@@ -169,6 +169,19 @@ async def scan_one(video: str, db: Session = Depends(get_db)):
     return {"video_id": vid, "desc_len": v.desc_len, "tx_len": v.tx_len,
             "hint_score": v.hint_score, "sponsorships": spons}
 
+@app.post("/api/admin/prune-legacy")
+def prune_legacy(db: Session = Depends(get_db)):
+    """One-off: delete v4 mention-based rows (conf<0.7) + reopen falsely-closed digs."""
+    old = db.query(Sponsorship).filter(Sponsorship.confidence < 0.7).count()
+    db.query(Sponsorship).filter(Sponsorship.confidence < 0.7).delete(synchronize_session=False)
+    db.commit()
+    branded = {r[0] for r in db.query(Video.creator_id).join(
+        Sponsorship, Sponsorship.video_id == Video.id).distinct().all()}
+    q = db.query(Creator) if not branded else db.query(Creator).filter(~Creator.id.in_(branded))
+    reset = q.update({Creator.history_done: False}, synchronize_session=False)
+    db.commit()
+    return {"deleted_legacy": old, "reopened_creators": reset}
+
 @app.get("/health")
 def health():
     return {"ok": True}
