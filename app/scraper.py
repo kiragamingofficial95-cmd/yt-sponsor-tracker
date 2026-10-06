@@ -45,7 +45,7 @@ def ytdlp_info(url: str) -> Optional[Dict]:
                 "extractor_args": {"youtube": {
                     "player_client": ["android", "ios", "web"],
                     "max_comments": ["20", "20", "0", "0"]}},
-                "socket_timeout": 25}
+                "socket_timeout": 10}
         with YoutubeDL(opts) as ydl:
             return ydl.extract_info(url, download=False)
     except Exception:
