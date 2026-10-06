@@ -17,7 +17,7 @@ from .config import settings
 
 ensure_schema()
 
-PIPE_VER = 4  # bump when detection improves -> brand-less videos get re-analyzed once
+PIPE_VER = 5  # bump when detection improves -> brand-less videos get re-analyzed once
 
 def norm(b: str) -> str:
     return b.strip().lower()
@@ -40,6 +40,10 @@ async def analyze_video(db: Session, creator: Creator, item: dict) -> int:
     v.topic = det.get("topic", "") or creator.niche
     v.desc_len, v.tx_len = len(desc), len(tx)
     v.hint_score = detector.stage1_candidates(desc, pinned, tx)["score"]
+    # v5 strict: drop legacy mention-only rows before re-detecting
+    if (v.pipe_ver or 0) < PIPE_VER:
+        db.query(Sponsorship).filter_by(video_id=v.id).delete()
+        db.commit()
     v.pipe_ver = PIPE_VER
     hits = detector.detect(desc, pinned, tx,
                            settings.GROQ_API_KEY, settings.GROQ_MODEL)
