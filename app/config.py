@@ -16,6 +16,11 @@ class Settings(BaseSettings):
     RECENT_CREATORS_PER_SWEEP: int = 30   # recent-upload checks per sweep (rotates)
     RUN_WORKER: bool = True
     PORT: int = 8000
+    # anti-429: optional HTTP(S) proxies, comma-separated (round-robin).
+    # e.g. PROXY_URLS="http://user:pass@1.2.3.4:8080,http://user:pass@5.6.7.8:8080"
+    PROXY_URLS: str = ""
+    YT_MIN_INTERVAL_SEC: float = 1.0  # min gap between yt-dlp network calls
+    YT_RETRIES: int = 3             # attempts per call, rotating proxy+client
 
     class Config:
         env_file = ".env"
