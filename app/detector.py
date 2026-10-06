@@ -71,7 +71,7 @@ def stage2_groq(description: str, pinned: str, transcript: str, api_key: str, mo
         return []
 
 def detect(description: str, pinned: str, transcript: str,
-           api_key: str = "", model: str = "llama-3.3-70b-versatile") -> List[Dict]:
+           api_key: str = "", model: str = "openai/gpt-oss-120b") -> List[Dict]:
     """Returns list of {brand, category, confidence, evidence, link, method}."""
     c = stage1_candidates(description, pinned, transcript)
     results: List[Dict] = []
@@ -80,8 +80,9 @@ def detect(description: str, pinned: str, transcript: str,
     for b in c["brands"]:
         results.append({"brand": b, "category": "Other", "confidence": 0.65 if c["score"] else 0.45,
                         "evidence": (pinned or description)[:300], "link": link0, "method": "regex"})
-    # Groq confirm/enrich — only when suspicious (saves quota, keeps speed)
-    if c["suspicious"] and api_key:
+    # Groq confirm/enrich — suspicious videos OR long texts (unlisted brands hide there)
+    text_len = len(description) + len(pinned) + len(transcript)
+    if api_key and (c["suspicious"] or text_len > 1500):
         for g in stage2_groq(description, pinned, transcript, api_key, model):
             g["link"] = link0
             g["method"] = "groq"

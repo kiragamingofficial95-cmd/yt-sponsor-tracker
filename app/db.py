@@ -26,6 +26,11 @@ def ensure_schema():
             stmts.append("ALTER TABLE creators ADD COLUMN history_done BOOLEAN DEFAULT FALSE")
         if "total_checked" not in cols:
             stmts.append("ALTER TABLE creators ADD COLUMN total_checked INTEGER DEFAULT 0")
+    if "videos" in insp.get_table_names():
+        vcols = {c["name"] for c in insp.get_columns("videos")}
+        for col in ("desc_len", "tx_len", "hint_score", "pipe_ver"):
+            if col not in vcols:
+                stmts.append(f"ALTER TABLE videos ADD COLUMN {col} INTEGER DEFAULT 0")
         if stmts:
             with engine.begin() as conn:
                 for s in stmts:

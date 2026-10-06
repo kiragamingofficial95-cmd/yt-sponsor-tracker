@@ -17,13 +17,15 @@ from .config import settings
 
 ensure_schema()
 
+PIPE_VER = 2  # bump when detection improves -> brand-less videos get re-analyzed once
+
 def norm(b: str) -> str:
     return b.strip().lower()
 
 async def analyze_video(db: Session, creator: Creator, item: dict) -> int:
     vid = item["video_id"]
     v = db.query(Video).filter_by(video_id=vid).first()
-    if v and v.analyzed:
+    if v and v.analyzed and (v.pipe_ver or 0) >= PIPE_VER:
         return 0
     if not v:
         v = Video(video_id=vid, creator_id=creator.id, title=item.get("title", ""),
@@ -32,9 +34,14 @@ async def analyze_video(db: Session, creator: Creator, item: dict) -> int:
     loop = asyncio.get_running_loop()
     det = await loop.run_in_executor(None, scraper.video_details, vid)
     tx = await loop.run_in_executor(None, scraper.get_transcript, vid)
+    desc = det.get("description", "") or item.get("rss_desc", "")
+    pinned = det.get("pinned_comment", "")
     v.duration_s = det.get("duration_s", 0)
     v.topic = det.get("topic", "") or creator.niche
-    hits = detector.detect(det.get("description", ""), det.get("pinned_comment", ""), tx,
+    v.desc_len, v.tx_len = len(desc), len(tx)
+    v.hint_score = detector.stage1_candidates(desc, pinned, tx)["score"]
+    v.pipe_ver = PIPE_VER
+    hits = detector.detect(desc, pinned, tx,
                            settings.GROQ_API_KEY, settings.GROQ_MODEL)
     n = 0
     for h in hits:

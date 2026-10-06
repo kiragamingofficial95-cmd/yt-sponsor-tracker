@@ -26,9 +26,11 @@ def fetch_rss_videos(channel_id: str, limit: int = 8) -> List[Dict]:
                 continue
             pub = e.get("published_parsed")
             published = datetime(*pub[:6], tzinfo=timezone.utc) if pub else datetime.now(timezone.utc)
+            # RSS sometimes carries the description — fallback if yt-dlp is blocked
+            rss_desc = (e.get("summary") or e.get("media_description") or "")[:4000]
             out.append({"video_id": vid, "title": e.get("title", ""),
                         "url": f"https://www.youtube.com/watch?v={vid}",
-                        "published_at": published})
+                        "published_at": published, "rss_desc": rss_desc})
         return out
     except Exception:
         return []

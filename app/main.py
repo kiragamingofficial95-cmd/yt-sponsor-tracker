@@ -146,3 +146,16 @@ async def trigger_scan():
 @app.get("/health")
 def health():
     return {"ok": True}
+
+@app.get("/api/debug/videos")
+def debug_videos(limit: int = 20, db: Session = Depends(get_db)):
+    """Diagnostics: what did the pipeline actually see per video?"""
+    rows = db.query(Video, Creator).join(Creator, Video.creator_id == Creator.id).order_by(
+        Video.id.desc()).limit(limit).all()
+    out = []
+    for v, c in rows:
+        n = db.query(Sponsorship).filter_by(video_id=v.id).count()
+        out.append({"video": (v.title or "")[:70], "creator": c.name,
+                    "desc_len": v.desc_len or 0, "tx_len": v.tx_len or 0,
+                    "hint_score": v.hint_score or 0, "sponsorships": n})
+    return out
