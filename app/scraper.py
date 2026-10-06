@@ -36,11 +36,15 @@ def fetch_rss_videos(channel_id: str, limit: int = 8) -> List[Dict]:
         return []
 
 def ytdlp_info(url: str) -> Optional[Dict]:
-    """Single video or channel metadata via yt-dlp. Returns None on failure."""
+    """Single video or channel metadata via yt-dlp. Returns None on failure.
+    Uses mobile player clients — they bypass YouTube's datacenter bot-check
+    that blocks plain webpage extraction on servers like Railway."""
     try:
         from yt_dlp import YoutubeDL
         opts = {"quiet": True, "skip_download": True, "getcomments": True,
-                "extractor_args": {"youtube": {"max_comments": ["20", "20", "0", "0"]}},
+                "extractor_args": {"youtube": {
+                    "player_client": ["android", "ios", "web"],
+                    "max_comments": ["20", "20", "0", "0"]}},
                 "socket_timeout": 25}
         with YoutubeDL(opts) as ydl:
             return ydl.extract_info(url, download=False)
@@ -160,7 +164,26 @@ def resolve_channel(query: str) -> Optional[Dict]:
                 "url": info.get("channel_url", query)}
     return None
 
+PIPED_INSTANCES = [
+    "https://pipedapi.kavin.rocks",
+    "https://pipedapi.adminforge.de",
+    "https://pipedapi.leptons.xyz",
+]
+
+def piped_description(video_id: str) -> str:
+    """Piped API fallback for description when YouTube blocks the server IP."""
+    for base in PIPED_INSTANCES:
+        try:
+            with httpx.Client(timeout=12) as c:
+                r = c.get(f"{base}/streams/{video_id}")
+                if r.status_code == 200:
+                    return (r.json().get("description") or "")[:8000]
+        except Exception:
+            continue
+    return ""
+
 def get_transcript(video_id: str, max_chars: int = 12000) -> str:
+    """Primary captions API -> yt-dlp auto-subs fallback."""
     try:
         from youtube_transcript_api import YouTubeTranscriptApi
         segs = YouTubeTranscriptApi.get_transcript(video_id)
@@ -168,6 +191,35 @@ def get_transcript(video_id: str, max_chars: int = 12000) -> str:
         n = len(segs)
         pick = segs[:60] + (segs[n//2-15:n//2+15] if n > 120 else [])
         text = " ".join(s.get("text", "") for s in pick)
-        return text[:max_chars]
+        if text.strip():
+            return text[:max_chars]
+    except Exception:
+        pass
+    return subs_via_ytdlp(video_id, max_chars)
+
+def subs_via_ytdlp(video_id: str, max_chars: int = 12000) -> str:
+    """Auto-caption fallback via yt-dlp (timedtext endpoint often unblocked)."""
+    import os, glob, tempfile
+    try:
+        from yt_dlp import YoutubeDL
+        tmp = tempfile.mkdtemp()
+        opts = {"quiet": True, "skip_download": True, "writeautomaticsub": True,
+                "subtitleslangs": ["en"], "subtitlesformat": "vtt",
+                "outtmpl": os.path.join(tmp, "%(id)s.%(ext)s"),
+                "extractor_args": {"youtube": {"player_client": ["android", "ios"]}},
+                "socket_timeout": 30}
+        with YoutubeDL(opts) as ydl:
+            ydl.download([f"https://www.youtube.com/watch?v={video_id}"])
+        files = glob.glob(os.path.join(tmp, "*.vtt"))
+        if not files:
+            return ""
+        with open(files[0], encoding="utf-8", errors="ignore") as f:
+            lines = [l.strip() for l in f if l.strip() and "-->" not in l
+                     and not l.strip()[0].isdigit() and not l.startswith("WEBVTT")]
+        seen, out = set(), []
+        for l in lines:
+            if l not in seen:
+                seen.add(l); out.append(l)
+        return " ".join(out)[:max_chars]
     except Exception:
         return ""
