@@ -8,12 +8,12 @@ from sqlalchemy.orm import Session
 from sqlalchemy import func, desc
 import os
 
-from .db import SessionLocal, engine, get_db
-from .models import Base, Creator, Video, Sponsorship
+from .db import SessionLocal, engine, get_db, ensure_schema
+from .models import Base, Creator, Video, Sponsorship, Niche
 from .config import settings
 from . import scraper
 
-Base.metadata.create_all(bind=engine)
+ensure_schema()
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -103,16 +103,40 @@ def add_creator(channel: str, niche: str = "general", db: Session = Depends(get_
     return {"ok": True, "name": r["name"]}
 
 @app.post("/api/niche")
-def add_niche(niche: str, limit: int = 10, db: Session = Depends(get_db)):
-    """Type 'tech SaaS' or 'healthcare' -> auto-discover creators via scraping."""
-    found = scraper.discover_creators_for_niche(niche, limit)
+def add_niche(niche: str, limit: int = 30, db: Session = Depends(get_db)):
+    """Type 'tech SaaS' or 'healthcare' -> tracked forever: every sweep
+    discovers MORE creators (rotating queries) and digs each one's history
+    until a brand is found. Never stops at 10."""
+    niche = niche.strip().lower()
+    row = db.query(Niche).filter_by(name=niche).first()
+    if not row:
+        db.add(Niche(name=niche)); db.commit()
+        row = db.query(Niche).filter_by(name=niche).first()
+    found = scraper.discover_creators_for_niche(niche, limit, row.variant_cursor or 0)
+    row.variant_cursor = (row.variant_cursor or 0) + 1
     added = 0
     for f in found:
         if not db.query(Creator).filter_by(channel_id=f["channel_id"]).first():
             db.add(Creator(channel_id=f["channel_id"], name=f["name"], url=f["url"], niche=niche))
             added += 1
     db.commit()
-    return {"ok": True, "discovered": len(found), "added": added, "creators": found}
+    return {"ok": True, "endless": True, "discovered": len(found), "added": added,
+            "creators": found}
+
+@app.get("/api/niches")
+def niche_progress(db: Session = Depends(get_db)):
+    """Per-niche hunt progress: tracked vs brand-found vs still digging."""
+    out = []
+    branded = {r[0] for r in db.query(Video.creator_id).join(
+        Sponsorship, Sponsorship.video_id == Video.id).distinct().all()}
+    for n in db.query(Niche).all():
+        creators = db.query(Creator).filter_by(niche=n.name).all()
+        with_brand = sum(1 for c in creators if c.id in branded or c.history_done)
+        out.append({"niche": n.name, "creators": len(creators),
+                    "with_brand_or_done": with_brand,
+                    "still_digging": len(creators) - with_brand,
+                    "videos_checked": sum(c.total_checked or 0 for c in creators)})
+    return out
 
 @app.post("/api/scan")
 async def trigger_scan():

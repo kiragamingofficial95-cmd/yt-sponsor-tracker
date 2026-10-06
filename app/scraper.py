@@ -68,25 +68,70 @@ def video_details(video_id: str) -> Dict:
             "channel": info.get("channel", "") or "",
             "topic": (info.get("categories") or [""])[0] if info.get("categories") else ""}
 
-def discover_creators_for_niche(niche: str, limit: int = 10) -> List[Dict]:
-    """ytsearch: 'best <niche> youtubers' -> unique channels. No API key."""
+DISCOVERY_TEMPLATES = [
+    "{n} youtuber",
+    "best {n} youtube channels",
+    "{n} review channel",
+    "{n} explained",
+    "{n} podcast",
+    "{n} news channel",
+    "{n} tutorial youtuber",
+    "{n} vlog channel",
+]
+
+def discover_creators_for_niche(niche: str, limit: int = 30, variant: int = 0) -> List[Dict]:
+    """Quota-free ytsearch discovery. `variant` rotates the query template each
+    sweep so the same niche keeps yielding NEW creators instead of the same 10."""
+    queries = [t.format(n=niche) for t in DISCOVERY_TEMPLATES]
+    # rotate: start at cursor, try up to 3 templates per call
+    ordered = [queries[(variant + i) % len(queries)] for i in range(3)]
+    seen, out = set(), []
     try:
         from yt_dlp import YoutubeDL
         opts = {"quiet": True, "skip_download": True, "extract_flat": True, "socket_timeout": 25}
         with YoutubeDL(opts) as ydl:
-            data = ydl.extract_info(f"ytsearch{limit*2}:{niche} youtuber", download=False)
-        seen, out = set(), []
+            for q in ordered:
+                try:
+                    data = ydl.extract_info(f"ytsearch{limit}:{q}", download=False)
+                except Exception:
+                    continue
+                for e in (data.get("entries") or []):
+                    cid = e.get("channel_id") or e.get("id") or ""
+                    ch = e.get("channel") or e.get("uploader") or ""
+                    if not cid or cid in seen:
+                        continue
+                    seen.add(cid)
+                    out.append({"channel_id": cid, "name": ch,
+                                "url": e.get("channel_url") or e.get("url") or "",
+                                "niche": niche})
+                    if len(out) >= limit:
+                        return out
+    except Exception:
+        pass
+    return out
+
+def fetch_channel_history(channel_id: str, channel_url: str, skip: int = 0,
+                          batch: int = 25) -> List[Dict]:
+    """Page BACK through a channel's uploads (oldest hunt). yt-dlp flat playlist
+    with playliststart/end — no API key. Returns items not yet checked."""
+    try:
+        from yt_dlp import YoutubeDL
+        url = channel_url or f"https://www.youtube.com/channel/{channel_id}/videos"
+        if "/videos" not in url:
+            url = url.rstrip("/") + "/videos"
+        opts = {"quiet": True, "skip_download": True, "extract_flat": True,
+                "playliststart": skip + 1, "playlistend": skip + batch,
+                "socket_timeout": 30}
+        with YoutubeDL(opts) as ydl:
+            data = ydl.extract_info(url, download=False)
+        out = []
         for e in (data.get("entries") or []):
-            cid = e.get("channel_id") or e.get("id") or ""
-            ch = e.get("channel") or e.get("uploader") or ""
-            if not cid or cid in seen:
+            vid = e.get("id", "")
+            if not vid or len(vid) > 16:
                 continue
-            seen.add(cid)
-            out.append({"channel_id": cid, "name": ch,
-                        "url": e.get("channel_url") or e.get("url") or "",
-                        "niche": niche})
-            if len(out) >= limit:
-                break
+            out.append({"video_id": vid, "title": e.get("title", ""),
+                        "url": f"https://www.youtube.com/watch?v={vid}",
+                        "published_at": datetime.now(timezone.utc)})
         return out
     except Exception:
         return []

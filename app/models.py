@@ -16,7 +16,18 @@ class Creator(Base):
     subs = Column(Integer, default=0)
     last_checked = Column(DateTime(timezone=True), nullable=True)
     created_at = Column(DateTime(timezone=True), default=now)
+    # endless-hunt tracking: keep digging history until first brand found
+    history_done = Column(Boolean, default=False, index=True)
+    total_checked = Column(Integer, default=0)
     videos = relationship("Video", back_populates="creator", cascade="all,delete")
+
+class Niche(Base):
+    """A hunt the user started by typing e.g. 'tech'. Worker expands it forever."""
+    __tablename__ = "niches"
+    id = Column(Integer, primary_key=True)
+    name = Column(String(128), unique=True, index=True)
+    variant_cursor = Column(Integer, default=0)  # rotates discovery queries
+    created_at = Column(DateTime(timezone=True), default=now)
 
 class Video(Base):
     __tablename__ = "videos"
