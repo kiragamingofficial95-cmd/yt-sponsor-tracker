@@ -175,7 +175,6 @@ def health():
 
 @app.get("/api/debug/videos")
 def debug_videos(limit: int = 20, db: Session = Depends(get_db)):
-    """Diagnostics: what did the pipeline actually see per video?"""
     rows = db.query(Video, Creator).join(Creator, Video.creator_id == Creator.id).order_by(
         Video.id.desc()).limit(limit).all()
     out = []
@@ -185,3 +184,28 @@ def debug_videos(limit: int = 20, db: Session = Depends(get_db)):
                     "desc_len": v.desc_len or 0, "tx_len": v.tx_len or 0,
                     "hint_score": v.hint_score or 0, "sponsorships": n})
     return out
+
+@app.get("/api/debug/rss")
+def debug_rss(channel: str):
+    """What does the SERVER see in a channel RSS feed? (keys + summary lens)"""
+    import feedparser
+    f = feedparser.parse(f"https://www.youtube.com/feeds/videos.xml?channel_id={channel}")
+    items = []
+    for e in f.entries[:5]:
+        items.append({"id": e.get("yt_videoid", ""),
+                      "summary_len": len(e.get("summary") or ""),
+                      "summary_head": (e.get("summary") or "")[:120]})
+    return {"entries": len(f.entries), "items": items,
+            "bozo": bool(getattr(f, "bozo", False))}
+
+@app.get("/api/debug/ytdlp")
+def debug_ytdlp(video: str):
+    """What does the SERVER get from yt-dlp for one video? (keys + lens)"""
+    from . import scraper
+    info = scraper.ytdlp_info(f"https://www.youtube.com/watch?v={video}")
+    if not info:
+        return {"ok": False}
+    return {"ok": True, "desc_len": len(info.get("description") or ""),
+            "comments": len(info.get("comments") or []),
+            "has_duration": bool(info.get("duration")),
+            "channel": info.get("channel", "")[:60]}
