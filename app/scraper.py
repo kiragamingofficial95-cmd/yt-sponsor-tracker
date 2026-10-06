@@ -207,7 +207,7 @@ def subs_via_ytdlp(video_id: str, max_chars: int = 12000) -> str:
                 "subtitleslangs": ["en"], "subtitlesformat": "vtt",
                 "outtmpl": os.path.join(tmp, "%(id)s.%(ext)s"),
                 "extractor_args": {"youtube": {"player_client": ["android", "ios"]}},
-                "socket_timeout": 30}
+                "socket_timeout": 15}
         with YoutubeDL(opts) as ydl:
             ydl.download([f"https://www.youtube.com/watch?v={video_id}"])
         files = glob.glob(os.path.join(tmp, "*.vtt"))

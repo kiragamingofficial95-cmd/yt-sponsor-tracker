@@ -17,7 +17,7 @@ from .config import settings
 
 ensure_schema()
 
-PIPE_VER = 3  # bump when detection improves -> brand-less videos get re-analyzed once
+PIPE_VER = 4  # bump when detection improves -> brand-less videos get re-analyzed once
 
 def norm(b: str) -> str:
     return b.strip().lower()
@@ -35,8 +35,6 @@ async def analyze_video(db: Session, creator: Creator, item: dict) -> int:
     det = await loop.run_in_executor(None, scraper.video_details, vid)
     tx = await loop.run_in_executor(None, scraper.get_transcript, vid)
     desc = det.get("description", "") or item.get("rss_desc", "")
-    if not desc:  # last resort: Piped API mirrors YouTube metadata
-        desc = await loop.run_in_executor(None, scraper.piped_description, vid)
     pinned = det.get("pinned_comment", "")
     v.duration_s = det.get("duration_s", 0)
     v.topic = det.get("topic", "") or creator.niche
@@ -177,8 +175,8 @@ async def sweep_once() -> dict:
         new_creators = await expand_niches(db)
     finally:
         db.close()
-    hist = await dig_histories()
-    rec = await sweep_recents()
+    rec = await sweep_recents()   # fast RSS path first — populates data quickly
+    hist = await dig_histories()  # slow deep-dive second
     return {"new_creators": new_creators,
             "creators_dug": hist["creators_dug"],
             "videos": hist["videos"] + rec["videos"],
