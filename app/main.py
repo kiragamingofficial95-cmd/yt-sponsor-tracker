@@ -143,6 +143,32 @@ async def trigger_scan():
     from .worker import sweep_once
     return await sweep_once()
 
+@app.post("/api/scan-one")
+async def scan_one(video: str, db: Session = Depends(get_db)):
+    """Analyze ONE video synchronously and return exactly what was seen.
+    Definitive per-video diagnosis: pass video id or watch URL."""
+    import re
+    from .worker import analyze_video
+    m = re.search(r"([\w-]{11})", video)
+    if not m:
+        return {"error": "pass a video id or watch URL"}
+    vid = m.group(1)
+    c = db.query(Creator).first()
+    if not c:
+        return {"error": "add a creator/niche first"}
+    # force fresh analysis
+    v = db.query(Video).filter_by(video_id=vid).first()
+    if v:
+        v.analyzed = False; v.pipe_ver = 0; db.commit()
+    item = {"video_id": vid, "title": "", "url": f"https://www.youtube.com/watch?v={vid}",
+            "published_at": None, "rss_desc": ""}
+    await analyze_video(db, c, item)
+    v = db.query(Video).filter_by(video_id=vid).first()
+    spons = [{"brand": s.brand, "method": s.method, "evidence": (s.evidence or "")[:200]}
+             for s in db.query(Sponsorship).filter_by(video_id=v.id).all()]
+    return {"video_id": vid, "desc_len": v.desc_len, "tx_len": v.tx_len,
+            "hint_score": v.hint_score, "sponsorships": spons}
+
 @app.get("/health")
 def health():
     return {"ok": True}
