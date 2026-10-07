@@ -2,10 +2,12 @@ import asyncio
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from fastapi import FastAPI, Depends, Query
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy.orm import Session
 from sqlalchemy import func, desc
+import csv
+import io
 import os
 
 from .db import SessionLocal, engine, get_db, ensure_schema
@@ -64,6 +66,65 @@ def search(q: str = "", category: str = "", year_from: int = 0, year_to: int = 0
                     "published": v.published_at.isoformat() if v.published_at else None,
                     "creator": c.name, "niche": c.niche, "topic": v.topic})
     return out
+
+
+CSV_COLUMNS = ["brand", "category", "confidence", "method", "evidence", "link",
+               "video_title", "video_url", "published", "creator", "creator_url",
+               "niche", "topic", "detected_at"]
+
+
+def _sponsorship_query(db: Session, q: str, category: str):
+    query = db.query(Sponsorship, Video, Creator).join(
+        Video, Sponsorship.video_id == Video.id).join(
+        Creator, Video.creator_id == Creator.id)
+    if q:
+        query = query.filter(Sponsorship.brand_norm.like(f"%{q.lower()}%"))
+    if category:
+        query = query.filter(Sponsorship.category == category)
+    return query.order_by(desc(Sponsorship.detected_at))
+
+
+@app.get("/api/export.csv")
+def export_csv(q: str = "", category: str = "", year_from: int = 0,
+               year_to: int = 0, limit: int = 5000,
+               db: Session = Depends(get_db)):
+    """Bulk CSV export of sponsorships found — same filters as /api/search.
+
+    Streams rows so large exports don't blow memory. Caps at 20000 rows.
+    """
+    limit = max(1, min(limit, 20000))
+
+    def gen():
+        buf = io.StringIO()
+        w = csv.writer(buf)
+        w.writerow(CSV_COLUMNS)
+        yield buf.getvalue()
+        buf.seek(0); buf.truncate(0)
+        n = 0
+        for s, v, c in _sponsorship_query(db, q, category).yield_per(500):
+            if n >= limit:
+                break
+            if year_from and v.published_at and v.published_at.year < year_from:
+                continue
+            if year_to and v.published_at and v.published_at.year > year_to:
+                continue
+            w.writerow([s.brand, s.category, s.confidence, s.method,
+                        s.evidence or "", s.link or "", v.title or "",
+                        v.url or "",
+                        v.published_at.isoformat() if v.published_at else "",
+                        c.name or "", c.url or "", c.niche or "",
+                        v.topic or "",
+                        s.detected_at.isoformat() if s.detected_at else ""])
+            n += 1
+            if n % 200 == 0:  # flush in chunks, keep memory flat
+                yield buf.getvalue()
+                buf.seek(0); buf.truncate(0)
+        if buf.tell():
+            yield buf.getvalue()
+
+    return StreamingResponse(gen(), media_type="text/csv",
+                             headers={"Content-Disposition":
+                                      "attachment; filename=sponsorships.csv"})
 
 @app.get("/api/brand/{name}")
 def brand_detail(name: str, db: Session = Depends(get_db)):

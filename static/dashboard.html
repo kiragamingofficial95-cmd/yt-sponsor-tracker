@@ -3,7 +3,7 @@
 <style>body{font-family:system-ui;background:#0b0e14;color:#e6e9f0;margin:0}header{padding:16px 24px;background:#121724;display:flex;gap:12px;align-items:center;flex-wrap:wrap}input,select,button{padding:9px 12px;border-radius:8px;border:1px solid #2a3347;background:#1a2130;color:#fff}button{background:#3b82f6;border:none;cursor:pointer;font-weight:600}main{padding:20px;display:grid;grid-template-columns:1fr 1fr;gap:16px}@media(max-width:900px){main{grid-template-columns:1fr}}.card{background:#121724;border:1px solid #232c42;border-radius:12px;padding:16px}.stat{font-size:26px;font-weight:700}table{width:100%;border-collapse:collapse;font-size:13px}td,th{border-bottom:1px solid #232c42;padding:8px;text-align:left}a{color:#7fb3ff}.row{display:flex;gap:8px;flex-wrap:wrap}</style></head>
 <body><header><h2 style="margin:0">📺 Sponsorship Analyzer <small style="color:#8b93a7">24/7</small></h2>
 <input id="q" placeholder="Search brand e.g. nordvpn" style="min-width:220px"><input id="cat" placeholder="Category filter"><input id="yf" placeholder="Year from" style="width:90px"><input id="yt" placeholder="Year to" style="width:90px">
-<button onclick="doSearch()">Search</button><button onclick="brandView()">Brand deep-dive</button></header>
+<button onclick="doSearch()">Search</button><button onclick="exportCsv()">⬇ Export CSV</button><button onclick="brandView()">Brand deep-dive</button></header>
 <main>
 <div class="card"><h3>Stats</h3><div id="stats" class="row"></div><canvas id="ch" height="120"></canvas></div>
 <div class="card"><h3>Add creators / niches (auto-expand)</h3>
@@ -20,5 +20,6 @@ async function brandView(){const q=document.getElementById('q').value||'nordvpn'
 async function addNiche(){const n=document.getElementById('niche').value;if(!n)return alert('type a niche');document.getElementById('msg').textContent='discovering… (scraping, ~30s)';const r=await j('/api/niche?niche='+encodeURIComponent(n)+'&limit=30',{method:'POST'});document.getElementById('msg').textContent=`found ${r.discovered}, added ${r.added} — hunt runs endlessly, watch progress below`;load()}
 async function addCreator(){const c=document.getElementById('chan').value;const r=await j('/api/creators?channel='+encodeURIComponent(c)+'&niche=general',{method:'POST'});document.getElementById('msg').textContent=JSON.stringify(r);load()}
 async function scan(){document.getElementById('msg').textContent='scanning…';const r=await j('/api/scan',{method:'POST'});document.getElementById('msg').textContent=`scan: ${r.videos} videos, ${r.brands} new brands`;load()}
+function exportCsv(){const q=document.getElementById('q').value,cat=document.getElementById('cat').value,yf=document.getElementById('yf').value,yt=document.getElementById('yt').value;window.location=`/api/export.csv?q=${encodeURIComponent(q)}&category=${encodeURIComponent(cat)}&year_from=${yf||0}&year_to=${yt||0}&limit=5000`}
 load()
 </script></body></html>
